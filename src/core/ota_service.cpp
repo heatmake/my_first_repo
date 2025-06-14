@@ -18,7 +18,7 @@ OtaStatus_e OtaService::SetRobotInfo(const RobotInfo_s* info) {
     if (!info)
     {
         std::cout << "Invalid Robot Info" << std::endl;
-        std::cout << "Failed to set robot info" << std::endl;
+        std::cout << "Failed to Set Robot Info" << std::endl;
         return OtaStatus_e::Failed;
     } 
     return prefabManager_->SetRobotInfo(info);
