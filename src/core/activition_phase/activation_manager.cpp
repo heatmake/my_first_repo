@@ -10,7 +10,7 @@ bool ActivationManager::SetActive()
     bool writeSuccess = JsonHelper::Instance().WriteBool("/data/config/ota/ota_info.json", "active_flag", &value);
     if (!writeSuccess)
     {
-        std::cerr << "[OTA] Failed to write active status" << std::endl;
+        std::cerr << "[OTA] status" << std::endl;
         return false;
     }
     std::cout << "[OTA] reboot notified." << std::endl;
