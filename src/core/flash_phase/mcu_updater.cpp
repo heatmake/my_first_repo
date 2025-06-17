@@ -101,7 +101,7 @@ bool McuUpdater::PreUpdate(const std::string &appPath)
     std::string newMcuVersion = ExtractVersionFromFilename(appPath);
     if (newMcuVersion.empty())
     {
-        std::cerr << "[OTA] 无法从文件名中提取SOC版本，终止刷写流程！\n";
+        std::cerr << "[MCU] 无法从文件名中提取SOC版本，终止刷写流程！\n";
         return false;
     }
 
@@ -114,46 +114,46 @@ bool McuUpdater::PreUpdate(const std::string &appPath)
                                 &checkValue, sizeof(checkValue),
                                 payload, payloadLen))
     {
-        std::cerr << "[OTA] SendAndRecv failed.\n";
+        std::cerr << "[MCU] SendAndRecv failed.\n";
         return false;
     }
 
     if (payload == nullptr || payloadLen < 1)
     {
-        std::cerr << "[OTA] Payload invalid or too short.\n";
+        std::cerr << "[MCU] Payload invalid or too short.\n";
         return false;
     }
 
     uint8_t status = payload[payloadLen - 1];
     if (status != 0x00)
     {
-        std::cerr << "[OTA] MCU响应状态码无效，状态=0x"
+        std::cerr << "[MCU] MCU响应状态码无效，状态=0x"
                   << std::hex << static_cast<int>(status) << "\n";
         return false;
     }
 
     // 4. 提取版本号并判断
     receivedVersion.assign(reinterpret_cast<const char *>(payload), payloadLen - 1);
-    std::cout << "[OTA] MCU ready. Version: " << receivedVersion << "\n";
+    std::cout << "[MCU] MCU ready. Version: " << receivedVersion << "\n";
 
     if (IsVersionNewer(newMcuVersion, receivedVersion))
     {
-        std::cout << "[OTA] SOC版本较新，进入刷写流程，记录当前MCU版本...\n";
+        std::cout << "[MCU] SOC版本较新，进入刷写流程，记录当前MCU版本...\n";
         if (!JsonHelper::GetInstance().WriteString("/data/config/ota/ota_info.json", "mcu_version", receivedVersion))
         {
-            std::cerr << "[OTA] Failed to write mcu_version to JSON.\n";
+            std::cerr << "[MCU] Failed to write mcu_version to JSON.\n";
             return false;
         }
         success = true;
     }
     else if (newMcuVersion == receivedVersion)
     {
-        std::cout << "[OTA] SOC与MCU版本一致，跳过刷写。\n";
+        std::cout << "[MCU] SOC与MCU版本一致，跳过刷写。\n";
         success = true;
     }
     else
     {
-        std::cout << "[OTA] SOC版本低于MCU，禁止刷写。\n";
+        std::cout << "[MCU] SOC版本低于MCU，禁止刷写。\n";
     }
 
     return success;
@@ -161,7 +161,7 @@ bool McuUpdater::PreUpdate(const std::string &appPath)
 
 bool McuUpdater::SendDownloadRequest(DownloadRequestType requestType, uint16_t totalPackages, uint32_t totalLength)
 {
-    std::cout << "[OTA] Sending Flash-driver download request to MCU...\n";
+    std::cout << "[MCU] Sending Flash-driver download request to MCU...\n";
 
     bool result = false;
 
@@ -179,20 +179,20 @@ bool McuUpdater::SendDownloadRequest(DownloadRequestType requestType, uint16_t t
 
     if (!dataCtrl_->SendAndRecv(DATA_TYPE_DOWNLOAD_REQUEST, payload, sizeof(payload), responsePayload, responseLen))
     {
-        std::cerr << "[OTA] Failed to send download request or receive response.\n";
+        std::cerr << "[MCU] Failed to send download request or receive response.\n";
     }
     else if (responsePayload == nullptr || responseLen < 1)
     {
-        std::cerr << "[OTA] Invalid response payload.\n";
+        std::cerr << "[MCU] Invalid response payload.\n";
     }
     else if (responsePayload[0] != 0x00)
     {
-        std::cerr << "[OTA] MCU responded with unexpected code: 0x"
+        std::cerr << "[MCU] MCU responded with unexpected code: 0x"
                   << std::hex << static_cast<int>(responsePayload[0]) << "\n";
     }
     else
     {
-        std::cout << "[OTA] MCU confirmed download request.\n";
+        std::cout << "[MCU] MCU confirmed download request.\n";
         result = true;
     }
 
@@ -205,7 +205,7 @@ uint32_t RbtOtaServiceImpl::CalculateTotalLength(const std::string &filePath)
     struct stat statBuf;
     if (stat(filePath.c_str(), &statBuf) != 0)
     {
-        std::cerr << "[OTA] Failed to get file size: " << filePath << std::endl;
+        std::cerr << "[MCU] Failed to get file size: " << filePath << std::endl;
         return -1;
     }
     return static_cast<int>(statBuf.st_size);
@@ -263,7 +263,7 @@ bool McuUpdater::SendDownloadPackage(const std::vector<uint8_t> &package, uint16
     payload.push_back(static_cast<uint8_t>(index & 0xFF));
     payload.insert(payload.end(), package.begin(), package.end());
 
-    std::cout << "[OTA] Sending Flash-driver package index: " << index
+    std::cout << "[MCU] Sending Flash-driver package index: " << index
               << ", size: " << package.size() << " bytes" << std::endl;
 
     const uint8_t *recvBuf = nullptr;
@@ -272,14 +272,14 @@ bool McuUpdater::SendDownloadPackage(const std::vector<uint8_t> &package, uint16
     // 使用 SendAndRecv 发送数据包并等待回应
     if (!dataCtrl_->SendAndRecv(DATA_TYPE_DOWNLOAD_DATA, payload.data(), payload.size(), recvBuf, recvLen))
     {
-        std::cerr << "[OTA] Failed to send or receive response from MCU at package " << index << std::endl;
+        std::cerr << "[MCU] Failed to send or receive response from MCU at package " << index << std::endl;
         return false;
     }
 
     // 检查回应长度是否足够（应至少为3字节）
     if (recvLen < 3 || recvBuf == nullptr)
     {
-        std::cerr << "[OTA] Invalid response from MCU for package " << index << std::endl;
+        std::cerr << "[MCU] Invalid response from MCU for package " << index << std::endl;
         return false;
     }
 
@@ -290,7 +290,7 @@ bool McuUpdater::SendDownloadPackage(const std::vector<uint8_t> &package, uint16
     // 检查 index 是否匹配
     if (respIndex != index)
     {
-        std::cerr << "[OTA] Mismatched index in MCU response. Expected: " << index
+        std::cerr << "[MCU] Mismatched index in MCU response. Expected: " << index
                   << ", got: " << respIndex << std::endl;
         return false;
     }
@@ -298,7 +298,7 @@ bool McuUpdater::SendDownloadPackage(const std::vector<uint8_t> &package, uint16
     // 检查状态码
     if (respStatus == 0x01) // CRC_FAIL
     {
-        std::cerr << "[OTA] Flash-driver CRC failed at package " << index << ", restarting...\n";
+        std::cerr << "[MCU] Flash-driver CRC failed at package " << index << ", restarting...\n";
         return false;
     }
 
@@ -326,7 +326,7 @@ bool McuUpdater::SendMd5ChecksumRequest(const std::array<uint8_t, 16> &md5Bytes)
     const uint8_t *recvBuf = nullptr;
     uint16_t recvLen = 0;
 
-    std::cout << "[OTA] Sending MD5 checksum for whole package...\n";
+    std::cout << "[MCU] Sending MD5 checksum for whole package...\n";
     bool sendSuccess = dataCtrl_->SendAndRecv(DATA_TYPE_CHECK_DATA,
                                               md5Bytes.data(), md5Bytes.size(),
                                               recvBuf, recvLen);
@@ -337,22 +337,22 @@ bool McuUpdater::SendMd5ChecksumRequest(const std::array<uint8_t, 16> &md5Bytes)
     {
         if (recvBuf[0] == 0x00) // OK
         {
-            std::cout << "[OTA] MD5 checksum acknowledged by MCU.\n";
+            std::cout << "[MCU] MD5 checksum acknowledged by MCU.\n";
             result = true;
         }
         else if (recvBuf[0] == 0x01) // NG
         {
-            std::cerr << "[OTA] MD5 checksum failed, MCU responded NG.\n";
+            std::cerr << "[MCU] MD5 checksum failed, MCU responded NG.\n";
         }
         else
         {
-            std::cerr << "[OTA] Unexpected response code: 0x"
+            std::cerr << "[MCU] Unexpected response code: 0x"
                       << std::hex << static_cast<int>(recvBuf[0]) << "\n";
         }
     }
     else
     {
-        std::cerr << "[OTA] Failed to send MD5 checksum or receive valid response.\n";
+        std::cerr << "[MCU] Failed to send MD5 checksum or receive valid response.\n";
     }
 
     return result;
@@ -360,14 +360,14 @@ bool McuUpdater::SendMd5ChecksumRequest(const std::array<uint8_t, 16> &md5Bytes)
 
 bool McuUpdater::FlashDriverUpdate(const std::string &flashDriverPath, UpdateSta_s &updateStatus, uint8_t totalFiles)
 {
-    std::cout << "[OTA] Ready to flash MCU with driver: " << flashDriverPath << std::endl;
+    std::cout << "[MCU] Ready to flash MCU with driver: " << flashDriverPath << std::endl;
 
     bool result = true;
 
     std::vector<uint8_t> fileData = ReadFileToBuffer(flashDriverPath);
     if (fileData.empty())
     {
-        std::cerr << "[OTA] Failed to read Flash-driver binary.\n";
+        std::cerr << "[MCU] Failed to read Flash-driver binary.\n";
         result = false;
     }
 
@@ -378,7 +378,7 @@ bool McuUpdater::FlashDriverUpdate(const std::string &flashDriverPath, UpdateSta
 
         if (!SendDownloadRequest(DownloadRequestType::FLASH_DRIVER, totalPackages, totalLength))
         {
-            std::cerr << "[OTA] Failed to send download request.\n";
+            std::cerr << "[MCU] Failed to send download request.\n";
             result = false;
         }
         else
@@ -389,7 +389,7 @@ bool McuUpdater::FlashDriverUpdate(const std::string &flashDriverPath, UpdateSta
 
                 if (!SendDownloadPackage(package, i))
                 {
-                    std::cerr << "[OTA] Failed to send package " << i << ", restarting...\n";
+                    std::cerr << "[MCU] Failed to send package " << i << ", restarting...\n";
                     result = false;
                     break;
                 }
@@ -401,7 +401,7 @@ bool McuUpdater::FlashDriverUpdate(const std::string &flashDriverPath, UpdateSta
 
                 if (!SendMd5ChecksumRequest(md5Bytes))
                 {
-                    std::cerr << "[OTA] MD5 校验请求失败，终止升级流程！\n";
+                    std::cerr << "[MCU] MD5 校验请求失败，终止升级流程！\n";
                     result = false;
                 }
             }
@@ -410,7 +410,7 @@ bool McuUpdater::FlashDriverUpdate(const std::string &flashDriverPath, UpdateSta
 
     if (result)
     {
-        std::cout << "[OTA] Flash-driver transmission complete. Proceeding to APP flash phase..." << std::endl;
+        std::cout << "[MCU] Flash-driver transmission complete. Proceeding to APP flash phase..." << std::endl;
     }
 
     return result;
@@ -435,26 +435,26 @@ bool McuUpdater::SendAppEraseRequest()
         switch (status)
         {
         case STATUS_OK:
-            std::cout << "[OTA] MCU erase ready. Version: " << outVersion << std::endl;
+            std::cout << "[MCU] MCU erase ready. Version: " << outVersion << std::endl;
             success = true;
             break;
 
         case STATUS_ERASING:
-            std::cerr << "[OTA] MCU reported 'erasing' after max retries. Giving up." << std::endl;
+            std::cerr << "[MCU] MCU reported 'erasing' after max retries. Giving up." << std::endl;
             break;
 
         case STATUS_NG:
-            std::cerr << "[OTA] MCU erase failed. Status NG." << std::endl;
+            std::cerr << "[MCU] MCU erase failed. Status NG." << std::endl;
             break;
 
         default:
-            std::cerr << "[OTA] Unknown response status: " << static_cast<int>(status) << std::endl;
+            std::cerr << "[MCU] Unknown response status: " << static_cast<int>(status) << std::endl;
             break;
         }
     }
     else
     {
-        std::cerr << "[OTA] Failed to send erase command after retries." << std::endl;
+        std::cerr << "[MCU] Failed to send erase command after retries." << std::endl;
     }
 
     return success;
@@ -462,14 +462,14 @@ bool McuUpdater::SendAppEraseRequest()
 
 bool McuUpdater::AppUpdate(const std::string &appPath)
 {
-    std::cout << "[OTA] Ready to flash MCU with APP: " << appPath << std::endl;
+    std::cout << "[MCU] Ready to flash MCU with APP: " << appPath << std::endl;
 
     bool result = true;
 
     std::vector<uint8_t> fileData = ReadFileToBuffer(appPath);
     if (fileData.empty())
     {
-        std::cerr << "[OTA] Failed to read APP binary.\n";
+        std::cerr << "[MCU] Failed to read APP binary.\n";
         result = false;
     }
     else
@@ -480,17 +480,17 @@ bool McuUpdater::AppUpdate(const std::string &appPath)
         // Step 1）发送擦除命令
         if (!SendAppEraseRequest())
         {
-            std::cerr << "[OTA] Failed to request MCU app erase. Aborting update." << std::endl;
+            std::cerr << "[MCU] Failed to request MCU app erase. Aborting update." << std::endl;
             result = false;
         }
         else
         {
-            std::cout << "[OTA] Erase request sent successfully. Proceeding with OTA update..." << std::endl;
+            std::cout << "[MCU] Erase request sent successfully. Proceeding with OTA update..." << std::endl;
 
             // Step 2）发送下载请求
             if (!SendDownloadRequest(DownloadRequestType::APP, totalPackages, totalLength))
             {
-                std::cerr << "[OTA] Failed to send download request for APP.\n";
+                std::cerr << "[MCU] Failed to send download request for APP.\n";
                 result = false;
             }
             else
@@ -502,7 +502,7 @@ bool McuUpdater::AppUpdate(const std::string &appPath)
 
                     if (!SendDownloadPackage(package, i))
                     {
-                        std::cerr << "[OTA] Failed to send package " << i << ", aborting...\n";
+                        std::cerr << "[MCU] Failed to send package " << i << ", aborting...\n";
                         result = false;
                         break;
                     }
@@ -514,7 +514,7 @@ bool McuUpdater::AppUpdate(const std::string &appPath)
                     auto md5Bytes = CalculateMd5Binary(fileData);
                     if (!SendMd5ChecksumRequest(md5Bytes))
                     {
-                        std::cerr << "[OTA] MD5 校验请求失败，终止升级流程！\n";
+                        std::cerr << "[MCU] MD5 校验请求失败，终止升级流程！\n";
                         result = false;
                     }
                 }
@@ -522,7 +522,7 @@ bool McuUpdater::AppUpdate(const std::string &appPath)
                 // Step 5）成功完成
                 if (result)
                 {
-                    std::cout << "[OTA] APP update successful. Proceeding to reset MCU...\n";
+                    std::cout << "[MCU] APP update successful. Proceeding to reset MCU...\n";
                 }
             }
         }
@@ -559,7 +559,7 @@ bool McuUpdater::NotifyMcuReset()
     uint16_t payloadLen = 0;
     bool success = false;
 
-    std::cout << "[OTA] Sending MCU reset request." << std::endl;
+    std::cout << "[MCU] Sending MCU reset request." << std::endl;
 
     success = dataCtrl_->SendAndRecv(DataPlaneType_e::DATA_TYPE_RESET,
                                      &RESET_CMD,
@@ -600,7 +600,7 @@ bool McuUpdater::Reboot()
         bool resetFlag = true;
         if (!JsonHelper::GetInstance().Writebool("/data/config/ota/ota_info.json", "reset_flag", &resetFlag))
         {
-            std::cerr << "[OTA] Failed to write reset flag." << std::endl;
+            std::cerr << "[MCU] Failed to write reset flag." << std::endl;
             break;
         }
 
