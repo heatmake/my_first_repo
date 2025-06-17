@@ -13,7 +13,7 @@ bool ActivationManager::SetActive()
         std::cerr << "[OTA] Failed to write active status" << std::endl;
         return false;
     }
-    std::cout << "[OTA] Activation started. MCU reboot notified." << std::endl;
+    std::cout << "[OTA] reboot notified." << std::endl;
     return true;
 }
 

@@ -101,7 +101,7 @@ bool McuUpdater::PreUpdate(const std::string &appPath)
     std::string newMcuVersion = ExtractVersionFromFilename(appPath);
     if (newMcuVersion.empty())
     {
-        std::cerr << "[MCU] 无法从文件名中提取SOC版本，终止刷写流程！\n";
+        std::cerr << "[OTA] 终止刷写流程！\n";
         return false;
     }
 
@@ -114,7 +114,7 @@ bool McuUpdater::PreUpdate(const std::string &appPath)
                                 &checkValue, sizeof(checkValue),
                                 payload, payloadLen))
     {
-        std::cerr << "[MCU] SendAndRecv failed.\n";
+        std::cerr << "[OTA] SendAndRecv failed.\n";
         return false;
     }
 
