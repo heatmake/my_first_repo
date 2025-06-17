@@ -1,48 +1,52 @@
 #include "prefabrication_manager.h"
 #include <iostream>
+#include "otalog.h"
 
 OtaStatus_e PrefabricationManager::SetRobotInfo(const RobotInfo_s *info) {
-    OtaStatus_e result = OtaStatus_e::Failed; 
+    OtaStatus_e result = OTA_STATUS_FAILED; 
 
     if (info) {
-        bool success = JsonHelper::GetInstance().WriteString("/data/config/ota/robot_info.json", "robot_sw_version", info->version);
+        bool success = JsonHelper::GetInstance().WriteString(K_ROBOT_INFO_JSON_PATH, "robot_sw_version", info->version);
         if (success) {
-            result = OtaStatus_e::Success; 
-            std::cout << "[OTA] Set Robot Info: version = " << info->version << std::endl;
+            result = OTA_STATUS_SUCCESS; 
+            OTALOG(OlmInstall, OllInfo, "[PRE]Set Robot Info: version = %s\n", info->version);
         } else {
-            std::cerr << "[OTA] Failed to write robot_info.json." << std::endl;
+            OTALOG(OlmInstall, OllError, "[PRE]Failed to write robot_info.json.\n" );
         }
     }
     return result; 
 }
 
 OtaStatus_e PrefabricationManager::SetOtaMode(otaMode_e mode) {
-    OtaStatus_e result = OtaStatus_e::Failed;
+    OtaStatus_e result = OTA_STATUS_FAILED;
+    bool otaModeFlag;
     if (mode == OTA_MODE_CANCEL) {
-        std::cout << "[OTA] OTA mode canceled, no update will be performed." << std::endl;
-        result = JsonHelper::GetInstance().WriteBool("/data/config/ota/ota_info.json", "ota_mode_flag", false);
-        if (!result) {
-            std::cerr << "[OTA] Failed to write ota_mode_flag = false" << std::endl;
+        OTALOG(OlmInstall, OllInfo, "[PRE]OTA mode canceled, no update will be performed.\n");
+        otaModeFlag = false;
+        bool readResult = JsonHelper::GetInstance().WriteBool(K_OTA_INFO_JSON_PATH, "ota_mode_flag", otaModeFlag);
+        if (!readResult) {
+            OTALOG(OlmInstall, OllError,  "[PRE]Failed to write ota_mode_flag = false\n" );
         }
-        result = OtaStatus_e::Success;
+        result = OTA_STATUS_SUCCESS;  
     } else if (mode == OTA_MODE_SET) {
-        std::cout << "[OTA] OTA mode set. Starting update thread..." << std::endl;
-        result = JsonHelper::GetInstance().WriteOtaStatus_e("/data/config/ota/ota_info.json", "ota_mode_flag", true);
-        if (!result) {
-            std::cerr << "[OTA] Failed to write ota_mode_flag = true" << std::endl;
+        OTALOG(OlmInstall, OllInfo, "[PRE]Set OTA mode.Starting update thread\n");
+        otaModeFlag = true;
+        bool readResult = JsonHelper::GetInstance().WriteBool(K_OTA_INFO_JSON_PATH, "ota_mode_flag", otaModeFlag);
+        if (!readResult) {
+            OTALOG(OlmInstall, OllError,  "[PRE]Failed to write ota_mode_flag = true\n" );
         }
-        result = OtaStatus_e::Success;
+        result = OTA_STATUS_SUCCESS;
         //后续通知MCU进入OTA模式（保留接口）
         // if (result) {
         //     result = NotifyMcuEnterOtaMode();
         //     if (!result) {
-        //         std::cerr << "[OTA] Failed to notify MCU to enter OTA mode via SPI." << std::endl;
+        //         std::cerr << "[PRE]Failed to notify MCU to enter OTA mode via SPI." << std::endl;
         //     }
         // } else {
-        //     std::cerr << "[OTA] Failed to write ota_mode_flag = true" << std::endl;
+        //     std::cerr << "[PRE]Failed to write ota_mode_flag = true" << std::endl;  
         // }
     } else {
-        std::cerr << "[OTA] Invalid OTA mode: " << mode << std::endl;
+        OTALOG(OlmInstall, OllError, "[PRE]Failed to write ota_mode_flag = true\n");
     }
     return result; 
 }

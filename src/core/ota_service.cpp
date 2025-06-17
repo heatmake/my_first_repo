@@ -1,5 +1,7 @@
 #include "ota_service.h"
 #include <iostream>
+#include "otalog.h"
+
 
 // 获取单例实例
 OtaService& OtaService::GetInstance() {
@@ -17,8 +19,8 @@ OtaService::OtaService() {
 OtaStatus_e OtaService::SetRobotInfo(const RobotInfo_s* info) {
     if (!info)
     {
-        std::cout << "Failed to Set Robot Info" << std::endl;
-        return OtaStatus_e::Failed;
+        OTALOG(OlmInstall, OllError, "[OtaService]Invalid Robot Info\n");
+        return OTA_STATUS_FAILED;
     } 
     return prefabManager_->SetRobotInfo(info);
 }
@@ -30,8 +32,8 @@ OtaStatus_e OtaService::SetOtaMode(otaMode_e mode) {
 OtaStatus_e OtaService::StartUpdate(const char* path) {
     if (!path)
     {
-        std::cout << "Invalid Update Path" << std::endl;
-        return OtaStatus_e::Failed;
+        OTALOG(OlmInstall, OllError, "[OtaService]Invalid Update Path\n");
+        return OTA_STATUS_FAILED;;
     } 
     return flashManager_->StartUpdate(path);
 }
@@ -39,8 +41,8 @@ OtaStatus_e OtaService::StartUpdate(const char* path) {
 OtaStatus_e OtaService::GetUpdateStatus(UpdateSta_s* status) {
     if (!status)
     {
-        std::cout << "Invalid Update Status" << std::endl;
-        return OtaStatus_e::Failed;
+        OTALOG(OlmInstall, OllError, "[OtaService]Invalid Update OtaStatus_e\n");
+        return OTA_STATUS_FAILED;;
     } 
     return flashManager_->GetUpdateStatus(status);
 }
@@ -52,8 +54,8 @@ OtaStatus_e OtaService::SetActive() {
 OtaStatus_e OtaService::GetActive(ActiveSta_s* status) {
     if (!status)
     {
-        std::cout << "Invalid Active Status" << std::endl;
-        return OtaStatus_e::Failed;
+        OTALOG(OlmInstall, OllError, "[OtaService]Invalid Active OtaStatus_e");
+        return OTA_STATUS_FAILED;;
     } 
     return activeManager_->GetActive(status);
 }

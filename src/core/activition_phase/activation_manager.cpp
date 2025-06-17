@@ -1,109 +1,112 @@
 #include "activation_manager.h"
 #include <iostream>
+#include <regex>
+#include "otalog.h"
 
-// 第一步：设置激活标志并通知 MCU 重启
-bool ActivationManager::SetActive()
+ActivationManager::ActivationManager()
 {
-    std::cout << "[OTA] Activating update..." << std::endl;
-    ActiveSta_s value;
-    value.result = 1; // 激活中
-    bool writeSuccess = JsonHelper::Instance().WriteBool("/data/config/ota/ota_info.json", "active_flag", &value);
-    if (!writeSuccess)
-    {
-        std::cerr << "[OTA] status" << std::endl;
-        return false;
-    }
-    std::cout << "[OTA] Active flag set to 1. Rebooting MCU..." << std::endl;
-    return true;
+    OTALOG(OlmInstall, OllInfo, "[ActivationManager]ActivationManager created.\n");
 }
 
-bool RbtOtaServiceImpl::FlashCompleteRequest(std::string &outVersion)
+std::string ActivationManager::ExtractVersionFromFilename(const std::string& filename)
 {
-    constexpr uint8_t FLASH_CMD = 0x01;
-    dataCtrl_->PrivateProtocolEncap(DataPlaneType_e::DATA_TYPE_FLASH_FINISH, &FLASH_CMD, sizeof(FLASH_CMD));
+    // 匹配 -V<主>.<子>.<修正> 形式的版本号
+    std::regex versionRegex(R"(-V(\d+)\.(\d+)\.(\d+))");
+    std::smatch match;
 
-    uint8_t recvBuf[COMM_DATA_LEN_MAX] = {0};
-
-    if (dataCtrl_->SendData(recvBuf, sizeof(recvBuf)))
-    {
-        uint8_t status = recvBuf[24]; // 状态在第25字节
-
-        std::cout << "[OTA] Flash complete ack received. Attempt: " << retry + 1 << ", Status: 0x"
-                  << std::hex << static_cast<int>(status) << std::dec << std::endl;
-
-        if (status == 0x00)
-        {
-            // 提取前24字节为版本号
-            outVersion = std::string(reinterpret_cast<char *>(recvBuf), 24);
-            std::cout << "[OTA] Flash successful. MCU Version: " << outVersion << std::endl;
-            return true;
-        }
-        else if (status == 0x01)
-        {
-            std::cerr << "[OTA] MCU flash failed with NG status." << std::endl;
-            break;
-        }
-        else
-        {
-            std::cerr << "[OTA] Unknown flash status: 0x"
-                      << std::hex << static_cast<int>(status) << std::dec << std::endl;
-            break;
-        }
+    if (std::regex_search(filename, match, versionRegex) && match.size() == 4) {
+        return match[1].str() + "." + match[2].str() + "." + match[3].str();
     }
-    return false;
+
+    return ""; // 匹配失败
+}
+
+// 第一步：设置激活标志并通知 MCU 重启
+OtaStatus_e ActivationManager::SetActive()
+{
+    OtaStatus_e result = OTA_STATUS_SUCCESS;
+    OTALOG(OlmInstall, OllInfo, "[ActivationManager]SetActive begin\n");
+    int value = 1;
+    bool writeSuccess = JsonHelper::GetInstance().WriteInt(K_OTA_INFO_JSON_PATH, "active_flag", value);
+    if (!writeSuccess) {
+        OTALOG(OlmInstall, OllError, "[ActivationManager]Failed to write active status\n");
+        result = OTA_STATUS_FAILED;;
+    }
+    return result;
 }
 
 // 第二步：系统重启后 OTA 周期调用查询激活状态
-uint8_t ActivationManager::GetActive(ActiveSta_s *status)
+OtaStatus_e ActivationManager::GetActive(ActiveSta_s* status)
 {
-    if (!status)
-    {
-        std::cerr << "[OTA] Invalid status pointer" << std::endl;
-        return 2;
+    OtaStatus_e result = OTA_STATUS_FAILED;
+
+    if (!status) {
+        OTALOG(OlmInstall, OllError, "[ActivationManager]Invalid status pointer.\n");
+        return result;
     }
+
+    JsonHelper& json = JsonHelper::GetInstance();
+    const std::string otaPath = K_OTA_INFO_JSON_PATH;
 
     bool resetFlag = false;
-    if (!JsonHelper::Instance().ReadBool("/data/config/ota/ota_info.json", "reset_flag", &resetFlag) || !resetFlag)
+    bool socFlag = false;
+    bool resetFlagOk = json.ReadBool(otaPath, "reset_flag", &resetFlag);
+
+    if(!json.ReadBool(otaPath, "soc_flag", &socFlag))
     {
-        std::cout << "[OTA] reset_flag not set. Skipping activation." << std::endl;
-        JsonHelper::Instance().WriteBool("/data/config/ota/ota_info.json", "active_flag", 0);
-        return 1; // 激活中
+        OTALOG(OlmInstall, OllError, "[ActivationManager]soc_flag read false. Skipping activation.\n");
+        status->result = 2;
+    }
+    
+    if (!socFlag) {
+        if (!resetFlagOk || !resetFlag) {
+            OTALOG(OlmInstall, OllInfo, "[ActivationManager]Reset flag is not set or false. Skipping activation.\n");
+            json.WriteInt(otaPath, "active_flag", 2);
+            status->result = 2;
+        } else {
+            std::string expectedVersion;
+            bool hasExpected = json.ReadString(otaPath, "mcu_version", &expectedVersion);
+
+            if (!hasExpected) {
+                OTALOG(OlmInstall, OllError, "[ActivationManager]Missing expected MCU version.\n");
+                json.WriteInt(otaPath, "active_flag", 2);
+                status->result = 2;
+            } else {
+                std::string responseVersion;
+                bool flashSuccess = DataCtrl::GetInstance().RetryOperation("FlashCompleteRequest", [&]() {
+                    return DataCtrl::GetInstance().FlashCompleteRequest(responseVersion);
+                });
+                responseVersion = ExtractVersionFromFilename(responseVersion);
+                if (!flashSuccess) {
+                    OTALOG(OlmInstall, OllError, "[ActivationManager]FlashCompleteRequest failed.\n");
+                    status->result = 2;
+                } else if (responseVersion == expectedVersion) {
+                    OTALOG(OlmInstall,
+                           OllInfo,
+                           "version match: Expected=%s, Got=%s\n",
+                           expectedVersion.c_str(),
+                           responseVersion.c_str());
+                    json.WriteInt(otaPath, "active_flag", 0);
+                    status->result = 0;
+                    resetFlag = false;
+                    bool resetFlagOk = json.WriteBool(otaPath, "reset_flag", resetFlag);
+                    result = OTA_STATUS_SUCCESS;
+                } else {
+                    OTALOG(OlmInstall,
+                           OllError,
+                           "version mismatch: Expected=%s, Got=%s\n",
+                           expectedVersion.c_str(),
+                           responseVersion.c_str());
+                    json.WriteInt(otaPath, "active_flag", 2);
+                    status->result = 2;
+                }
+            }
+        }
+    } else {
+        OTALOG(OlmInstall, OllInfo, "[ActivationManager]no MCU upgrade package, return activation success\n");
+        status->result = 0;
+        result = OTA_STATUS_SUCCESS;
     }
 
-    std::string expectedVersion;
-    if (!JsonHelper::Instance().ReadString("/data/config/ota/ota_info.json", "mcu_version", &expectedVersion))
-    {
-        std::cerr << "[OTA] mcu_version missing." << std::endl;
-        JsonHelper::Instance().WriteBool("/data/config/ota/ota_info.json", "active_flag", 0);
-        return 1; // 激活中
-    }
-
-    const int kMaxRetry = 6;
-    const int kRetryIntervalMs = 50;
-
-    for (int i = 0; i < kMaxRetry; ++i)
-    {
-        std::string responseVersion;
-        if (!FlashCompleteRequest(responseVersion))
-        {
-            std::cerr << "[OTA] FlashCompleteRequest failed. Retry " << (i + 1) << "/" << kMaxRetry << std::endl;
-            std::this_thread::sleep_for(std::chrono::milliseconds(kRetryIntervalMs));
-            continue;
-        }
-
-        if (responseVersion == expectedVersion)
-        {
-            std::cout << "[OTA] Version match: " << responseVersion << std::endl;
-            return 0; // 激活成功
-        }
-        else
-        {
-            std::cerr << "[OTA] Version mismatch. Expected: " << expectedVersion << ", Got: " << responseVersion << std::endl;
-            JsonHelper::Instance().WriteString("/data/config/ota/ota_info.json", "flash_status", "version_mismatch");
-            return 2; // 激活失败
-        }
-    }
-
-    std::cerr << "[OTA] Flash verification timed out." << std::endl;
-    return 2; // 激活失败
+    return result;
 }
