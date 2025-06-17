@@ -93,7 +93,7 @@ bool McuUpdater::PreUpdate(const std::string &appPath)
     // 1. 写入 flash_mode
     if (!JsonHelper::GetInstance().WriteString("/data/config/ota/ota_info.json", "flash_mode", "normal"))
     {
-        std::cerr << "[MCU] Failed to write flash_mode to JSON.\n";
+        std::cerr << "[MCU]JSON.\n";
         return false;
     }
 
