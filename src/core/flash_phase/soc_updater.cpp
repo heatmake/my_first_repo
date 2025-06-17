@@ -7,110 +7,117 @@
 #include <regex>
 #include <vector>
 #include <cstdlib>
+#include "otalog.h"
 
 namespace fs = std::filesystem;
 
-bool SocUpdater::Update(const std::vector<fs::path>& socPackages,UpdateSta_s &updateStatus,uint8_t totalFiles)
+bool SocUpdater::Update(const std::vector<fs::path>& socPackages, std::function<void(int)> progressCallback)
 {
-    updateStatus.stage = 1;
-    updateStatus.process = 0;
-    uint8_t processed = 0;
-
+    OTALOG(OlmInstall, OllInfo, "[SOC]start flash soc packages\n");
     bool result = true;
     bool all_success = true;
 
-    for (const auto& path : socPackages)
-    {
+    for (const auto& path : socPackages) {
         const std::string filename = path.filename().string();
         bool success = true;
-
-        if (std::regex_match(filename, std::regex(R"(app.*\.deb)")))
-        {
-            success = FlashDeb("应用软件包", path.string());
-        }
-        else if (std::regex_match(filename, std::regex(R"(robot.*\.deb)")))
-        {
-            success = FlashDeb("平台软件包", path.string());
-        }
-        else if (std::regex_match(filename, std::regex(R"(navi.*\.deb)")))
-        {
-            success = FlashDeb("导航软件包", path.string());
-        }
-        else if (std::regex_match(filename, std::regex(R"(mc.*\.deb)")))
-        {
-            success = FlashDeb("运控软件包", path.string());
-        }
-        else if (std::regex_match(filename, std::regex(R"(rte.*\.deb)")))
-        {
-            success = FlashDeb("底软软件包", path.string());
-        }
-        else if (std::regex_match(filename, std::regex(R"(SOC.*\.tar\.gz)")))
-        {
+        OTALOG(OlmInstall, OllInfo, "[SOC]package name: %s\n", filename.c_str());
+        if (std::regex_match(filename, std::regex(R"(app.*\.deb)"))) {
+            success = FlashDeb("app", path.string());
+        } else if (std::regex_match(filename, std::regex(R"(robot.*\.deb)"))) {
+            success = FlashDeb("robot", path.string());
+        } else if (std::regex_match(filename, std::regex(R"(navi.*\.deb)"))) {
+            success = FlashDeb("navi", path.string());
+        } else if (std::regex_match(filename, std::regex(R"(mc.*\.deb)"))) {
+            success = FlashDeb("mc", path.string());
+        } else if (std::regex_match(filename, std::regex(R"(rte.*\.deb)"))) {
+            success = FlashDeb("rte", path.string());
+        } else if (std::regex_match(filename, std::regex(R"(SOC.*\.tar\.gz)"))) {
             success = FlashSocSystem(path.string());
         }
 
         all_success &= success;
-        ++updateStatus.processed;
-        updateStatus.process = static_cast<int>((updateStatus.processed * 100.0) / totalFiles);
+
+        // 通知外部整体进度 +1 包
+        if (success) {
+            if (progressCallback) {
+                progressCallback(1);
+            }
+        }
     }
 
-    if (!all_success)
-    {
-        std::cerr << "[SOC] 有包刷写失败。\n";
-        updateStatus.stage = 2;
+    if (!all_success) {
+        OTALOG(OlmInstall, OllError, "[SOC]have package flash failed\n");
         RestoreConfigs();
         result = false;
+    } else {
+        OTALOG(OlmInstall, OllInfo, "[SOC]SOC package upgrade complete\n");
+        bool socFlag = true;
     }
-
-    std::cout << "[SOC] SOC 软件包升级完成。\n";
     return result;
 }
 
 void SocUpdater::RestoreConfigs()
 {
-    std::system("rm -rf /opt/seres && mv /opt/seres.bak /opt/seres");
-    std::system("rm -rf /data && mv /data.bak /data");
+    OTALOG(OlmInstall, OllInfo, "[SOC]start restore config\n");
+
+    // 删除原始 /opt/seres/ 目录下的对应目录
+    const std::string clean_opt =
+        "rm -rf /opt/seres/start /opt/seres/packages /opt/seres/middleware /opt/seres/calibration /opt/seres/model";
+
+    // 删除原始 /data/ 目录下的对应目录
+    const std::string clean_data = "rm -rf /data/config /data/db";
+
+    // 解压备份到原路径
+    const std::string restore_opt = "tar -xzf /opt/seres/backup/seres_backup.tar.gz -C /opt/seres";
+    const std::string restore_data = "tar -xzf /data/backup/data_backup.tar.gz -C /data";
+
+    int ret1 = system(clean_opt.c_str());
+    int ret2 = system(clean_data.c_str());
+    int ret3 = system(restore_opt.c_str());
+    int ret4 = system(restore_data.c_str());
+
+    if (ret3 == 0 && ret4 == 0) {
+        OTALOG(OlmInstall, OllInfo, "[SOC]config restore success\n");
+    } else {
+        OTALOG(OlmInstall, OllError, "[SOC]config restore failed\n");
+    }
 }
 
-bool SocUpdater::FlashDeb(const std::string &description, const std::string &filepath)
+bool SocUpdater::FlashDeb(const std::string& description, const std::string& filepath)
 {
     bool result = false;
-    std::cout << "[SOC] 正在刷写 " << description << ": " << filepath << std::endl;
-    std::string cmd = "dpkg -i \"" + filepath + "\"";
-    
-    if (system(cmd.c_str()) == 0)
-    {
-        std::cout << "  - " << description << " 升级成功\n";
+    OTALOG(OlmInstall, OllInfo, "[SOC]start flash %s: %s\n", description.c_str(), filepath.c_str());
+
+    std::string cmd = "dpkg -i \"" + filepath + "\" > /dev/null"; // 仅隐藏stdout，保留stderr
+
+    if (system(cmd.c_str()) == 0) {
+        OTALOG(OlmInstall, OllInfo, "[SOC]%s flash success\n", description.c_str());
         result = true;
+    } else {
+        OTALOG(OlmInstall, OllError, "[SOC]%s flash failed\n", description.c_str());
     }
 
-    std::cerr << "  - " << description << " 升级失败\n";
     return result;
 }
 
-
-bool SocUpdater::FlashSocSystem(const std::string &filepath)
+bool SocUpdater::FlashSocSystem(const std::string& filepath)
 {
     bool result = false;
-    std::cout << "[SOC] 正在刷写 SOC 系统包: " << filepath << std::endl;
+    OTALOG(OlmInstall, OllInfo, "[SOC]flashing SOC system package: %s\n", filepath.c_str());
 
-    std::string extractCmd = "tar xjpf /application/ota/ota_tools_R36.4.0_aarch64.tbz2";
-    std::string nvOtaCmd = "/application/ota/Linux_for_Tegra/tools/ota_tools/version_upgrade/nv_ota_start.sh \"" + filepath + "\"";
-    result = (system(extractCmd.c_str()) == 0 && system(nvOtaCmd.c_str()) == 0);
+    std::string extractCmd = "tar xjpf /application/ota/ota_tools_R36.4.0_aarch64.tbz2 > /dev/null";
+    std::string nvOtaCmd = "cd /application/ota/Linux_for_Tegra/tools/ota_tools/version_upgrade && "
+                           "./nv_ota_start.sh \""
+                           + filepath + "\" > /dev/null";
 
-    if (result)
-    {
-        std::cout << "  - SOC 系统包刷写成功\n";
+    bool execResult = (system(extractCmd.c_str()) == 0 && system(nvOtaCmd.c_str()) == 0);
+
+    if (execResult) {
+        OTALOG(OlmInstall, OllInfo, "[SOC]SOC system package flash success\n");
         result = true;
+    } else {
+        OTALOG(OlmInstall, OllError, "[SOC]SOC system package flash failed\n");
     }
-    std::cerr << "  - SOC 系统包刷写失败\n";
+
     return result;
-}
-
-
-// 发送 MD5 校验请求，包含 16 字节原始 MD5 值
-void SendMd5ChecksumRequest(const std::array<uint8_t, 16> &md5Bytes)
-{
-    dataCtrl_->PrivateProtocolEncap(DATA_TYPE_CHECK_DATA, md5Bytes.data(), md5Bytes.size());
-    std::cout << "[OTA] Sent MD5 checksum for whole package.\n";
 }
