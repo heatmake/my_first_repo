@@ -1,0 +1,3 @@
+/home/dell/ota/build/CMakeFiles/test_exe.dir
+/home/dell/ota/build/CMakeFiles/edit_cache.dir
+/home/dell/ota/build/CMakeFiles/rebuild_cache.dir
